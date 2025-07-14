@@ -100,11 +100,28 @@ async def start_command(message: types.Message):
     
     # Moderator start command
     if message.from_user.id == ADMIN_ID:
-        await message.answer(
-            "🎉 Сервер запущен! Бот готов принимать сообщения.\n"
-            "Используйте /admin для доступа к админ-панели (требуется пароль)."
-        )
-        logging.info("Бот: Сервер запущен для админа")
+        if dp.data.get(message.from_user.id, {}).get("admin_authorized", False):
+            await show_admin_panel(message)
+        else:
+            user_link = await generate_unique_link(message.from_user.id)
+            if user_link:
+                menu = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="📤 Поделиться ссылкой", switch_inline_query=user_link)],
+                    [InlineKeyboardButton(text="🔧 Админ-панель", callback_data="admin_panel")]
+                ])
+                await message.answer(
+                    "💖 Добро пожаловать в бот анонимных валентинок! 💖\n\n"
+                    "Отправляйте и получайте анонимные сообщения, полные любви и тепла! 💌\n"
+                    f"Ваша уникальная ссылка: {user_link}\n"
+                    "Поделитесь ею с друзьями, чтобы получать валентинки!\n\n"
+                    "За 5 Telegram Stars 🌟 вы сможете узнать, кто отправил вам сообщение!\n\n"
+                    "Выберите действие:",
+                    reply_markup=menu
+                )
+                logging.info(f"Ссылка отправлена админу user_id {message.from_user.id}: {user_link}")
+            else:
+                await message.answer("❌ Ошибка при генерации ссылки. Попробуйте ещё раз.")
+                logging.error(f"Не удалось сгенерировать ссылку для админа user_id {message.from_user.id}")
         return
     
     # Check if user is banned
@@ -125,17 +142,32 @@ async def start_command(message: types.Message):
             dp.data[message.from_user.id] = {"receiver_id": receiver_id}
             logging.info(f"Успешно обработана ссылка для user_id {message.from_user.id}, receiver_id: {receiver_id}")
         else:
-            await message.answer(
-                "❌ Неверная или собственная ссылка! Используйте /start, чтобы получить свою ссылку."
-            )
-            logging.warning(f"Неверная или собственная ссылка для user_id {message.from_user.id}, unique_id: {unique_id}")
+            user_link = await generate_unique_link(message.from_user.id)
+            if user_link:
+                menu = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="📤 Поделиться ссылкой", switch_inline_query=user_link)],
+                    [InlineKeyboardButton(text="🔧 Админ-панель", callback_data="admin_panel")]
+                ])
+                await message.answer(
+                    "❌ Неверная или собственная ссылка!\n\n"
+                    "💖 Добро пожаловать в бот анонимных валентинок! 💖\n\n"
+                    "Отправляйте и получайте анонимные сообщения, полные любви и тепла! 💌\n"
+                    f"Ваша уникальная ссылка: {user_link}\n"
+                    "Поделитесь ею с друзьями, чтобы получать валентинки!\n\n"
+                    "За 5 Telegram Stars 🌟 вы сможете узнать, кто отправил вам сообщение!\n\n"
+                    "Выберите действие:",
+                    reply_markup=menu
+                )
+                logging.info(f"Ссылка отправлена user_id {message.from_user.id}: {user_link}")
+            else:
+                await message.answer("❌ Ошибка при генерации ссылки. Попробуйте ещё раз.")
+                logging.error(f"Не удалось сгенерировать ссылку для user_id {message.from_user.id}")
     else:
         user_link = await generate_unique_link(message.from_user.id)
         if user_link:
             menu = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="📤 Поделиться ссылкой", switch_inline_query=user_link)],
-                [InlineKeyboardButton(text="📞 Поддержка", callback_data="support")],
-                [InlineKeyboardButton(text="📜 Условия использования", callback_data="terms")]
+                [InlineKeyboardButton(text="🔧 Админ-панель", callback_data="admin_panel")]
             ])
             await message.answer(
                 "💖 Добро пожаловать в бот анонимных валентинок! 💖\n\n"
@@ -143,7 +175,7 @@ async def start_command(message: types.Message):
                 f"Ваша уникальная ссылка: {user_link}\n"
                 "Поделитесь ею с друзьями, чтобы получать валентинки!\n\n"
                 "За 5 Telegram Stars 🌟 вы сможете узнать, кто отправил вам сообщение!\n\n"
-                "Выберите действие ниже:",
+                "Выберите действие:",
                 reply_markup=menu
             )
             logging.info(f"Ссылка отправлена user_id {message.from_user.id}: {user_link}")
@@ -151,20 +183,22 @@ async def start_command(message: types.Message):
             await message.answer("❌ Ошибка при генерации ссылки. Попробуйте ещё раз.")
             logging.error(f"Не удалось сгенерировать ссылку для user_id {message.from_user.id}")
 
-# Admin panel command
-@dp.message(Command("admin"))
-async def admin_command(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        await message.answer("❌ Доступ только для администратора.")
-        logging.warning(f"Неавторизованный доступ к /admin от user_id {message.from_user.id}")
+# Admin panel callback
+@dp.callback_query(F.data == "admin_panel")
+async def admin_panel_callback(callback: types.CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.message.answer("❌ Доступ только для администратора.")
+        logging.warning(f"Неавторизованный доступ к админ-панели от user_id {callback.from_user.id}")
+        await callback.answer()
         return
     
-    if dp.data.get(message.from_user.id, {}).get("admin_authorized", False):
-        await show_admin_panel(message)
+    if dp.data.get(callback.from_user.id, {}).get("admin_authorized", False):
+        await show_admin_panel(callback.message)
     else:
-        await message.answer("🔐 Введите пароль для доступа к админ-панели:")
-        dp.data[message.from_user.id] = dp.data.get(message.from_user.id, {})
-        dp.data[message.from_user.id]["awaiting_password"] = True
+        await callback.message.answer("🔐 Введите пароль для доступа к админ-панели:")
+        dp.data[callback.from_user.id] = dp.data.get(callback.from_user.id, {})
+        dp.data[callback.from_user.id]["awaiting_password"] = True
+    await callback.answer()
 
 # Handle password input
 @dp.message(F.text & F.func(lambda message: dp.data.get(message.from_user.id, {}).get("awaiting_password", False)))
@@ -189,7 +223,8 @@ async def show_admin_panel(message: types.Message):
         [InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats")],
         [InlineKeyboardButton(text="🗑 Очистить базу данных", callback_data="admin_clear_db")],
         [InlineKeyboardButton(text="🚫 Забанить пользователя", callback_data="admin_ban")],
-        [InlineKeyboardButton(text="✅ Разбанить пользователя", callback_data="admin_unban")]
+        [InlineKeyboardButton(text="✅ Разбанить пользователя", callback_data="admin_unban")],
+        [InlineKeyboardButton(text="🔒 Заблокировать админ-панель", callback_data="admin_lock")]
     ])
     await message.answer(
         "🔧 Админ-панель\n\nВыберите действие:",
@@ -202,6 +237,7 @@ async def admin_callback(callback: types.CallbackQuery):
     if callback.from_user.id != ADMIN_ID or not dp.data.get(callback.from_user.id, {}).get("admin_authorized", False):
         await callback.message.answer("❌ Доступ только для администратора.")
         logging.warning(f"Неавторизованный доступ к админ-действию от user_id {callback.from_user.id}")
+        await callback.answer()
         return
     
     action = callback.data.split("_")[1]
@@ -268,6 +304,31 @@ async def admin_callback(callback: types.CallbackQuery):
     elif action == "unban":
         await callback.message.answer("✅ Введите ID пользователя для разбана:")
         dp.data[callback.from_user.id]["awaiting_unban"] = True
+    
+    elif action == "lock":
+        dp.data[callback.from_user.id]["admin_authorized"] = False
+        user_link = await generate_unique_link(callback.from_user.id)
+        if user_link:
+            menu = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📤 Поделиться ссылкой", switch_inline_query=user_link)],
+                [InlineKeyboardButton(text="🔧 Админ-панель", callback_data="admin_panel")]
+            ])
+            await callback.message.answer(
+                "🔒 Админ-панель заблокирована.\n\n"
+                "💖 Добро пожаловать в бот анонимных валентинок! 💖\n\n"
+                "Отправляйте и получайте анонимные сообщения, полные любви и тепла! 💌\n"
+                f"Ваша уникальная ссылка: {user_link}\n"
+                "Поделитесь ею с друзьями, чтобы получать валентинки!\n\n"
+                "За 5 Telegram Stars 🌟 вы сможете узнать, кто отправил вам сообщение!\n\n"
+                "Выберите действие:",
+                reply_markup=menu
+            )
+            logging.info(f"Админ-панель заблокирована для user_id {callback.from_user.id}")
+        else:
+            await callback.message.answer("❌ Ошибка при генерации ссылки. Попробуйте ещё раз.")
+            logging.error(f"Не удалось сгенерировать ссылку при блокировке админ-панели для user_id {callback.from_user.id}")
+    
+    await callback.answer()
 
 # Handle clear_db confirmation
 @dp.message(F.text & F.func(lambda message: dp.data.get(message.from_user.id, {}).get("awaiting_clear_db", False)))
@@ -347,16 +408,7 @@ async def handle_unban_user(message: types.Message):
     finally:
         dp.data[message.from_user.id]["awaiting_unban"] = False
 
-# Support and terms callback
-@dp.callback_query(F.data.in_(["support", "terms"]))
-async def handle_support_terms(callback: types.CallbackQuery):
-    if callback.data == "support":
-        await callback.message.answer("📞 Для вопросов пишите: @Borov3223")  # Замените, если другой аккаунт
-    elif callback.data == "terms":
-        await callback.message.answer("📜 Условия использования: https://telegram.org/tos")
-    await callback.answer()
-
-# Support commands
+# Support and terms commands
 @dp.message(Command("paysupport"))
 async def paysupport_command(message: types.Message):
     await message.answer("📞 Для вопросов по оплате пишите: @Borov3223")  # Замените, если другой аккаунт
@@ -463,6 +515,7 @@ async def reveal_sender(callback: types.CallbackQuery):
     else:
         await callback.message.answer("❌ Ошибка: сообщение не найдено.")
         logging.error(f"Сообщение с ID {message_id} не найдено для reveal")
+    await callback.answer()
 
 # Handle pre-checkout query
 @dp.pre_checkout_query()
