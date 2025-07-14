@@ -11,11 +11,9 @@ import uuid
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Initialize main bot and moderation bot
-main_bot = Bot(token="8004585329:AAEe_MSDprlIqZdjyEV3AYH2iiQJDHTeCkM")
-moderation_bot = Bot(token="8184681913:AAEOfeBGA2p5S7q207ZpY-4qjCdBAW5gEEg")
-dp_main = Dispatcher()
-dp_moderation = Dispatcher()
+# Initialize bot
+bot = Bot(token="8004585329:AAEe_MSDprlIqZdjyEV3AYH2iiQJDHTeCkM")
+dp = Dispatcher()
 
 # Initialize SQLite database
 def init_db():
@@ -49,7 +47,7 @@ async def generate_unique_link(user_id):
         c.execute("INSERT OR REPLACE INTO users (user_id, unique_link) VALUES (?, ?)", (user_id, unique_id))
         conn.commit()
         logging.info(f"Сохранён user_id {user_id} с unique_id {unique_id} в БД")
-        bot_info = await main_bot.get_me()
+        bot_info = await bot.get_me()
         link = f"https://t.me/{bot_info.username}?start={unique_id}"
         logging.info(f"Сгенерирована ссылка для user_id {user_id}: {link}")
         return link
@@ -74,17 +72,25 @@ def get_user_from_link(unique_id):
     finally:
         conn.close()
 
-# Main bot: Start command handler
-@dp_main.message(Command("start"))
+# Start command handler
+@dp.message(Command("start"))
 async def start_command(message: types.Message):
     args = message.text.split()
     logging.info(f"Получена команда /start от user_id {message.from_user.id} с аргументами: {args}")
+    
+    # Moderator start command
+    if message.from_user.id == 5397929249:  # Ваш Telegram ID
+        await message.answer("Сервер запущен! Бот готов принимать сообщения.")
+        logging.info("Бот: Сервер запущен")
+        return
+    
+    # Regular user start command
     if len(args) > 1:
         unique_id = args[1]
         receiver_id = get_user_from_link(unique_id)
         if receiver_id and receiver_id != message.from_user.id:
             await message.answer("💌 Напишите анонимное валентинное сообщение:", reply_markup=types.ReplyKeyboardRemove())
-            dp_main.data[message.from_user.id] = {"receiver_id": receiver_id}
+            dp.data[message.from_user.id] = {"receiver_id": receiver_id}
             logging.info(f"Успешно обработана ссылка для user_id {message.from_user.id}, receiver_id: {receiver_id}")
         else:
             await message.answer("❌ Неверная или собственная ссылка! Используйте /start, чтобы получить свою ссылку.")
@@ -106,25 +112,25 @@ async def start_command(message: types.Message):
             await message.answer("❌ Ошибка при генерации ссылки. Попробуйте ещё раз.")
             logging.error(f"Не удалось сгенерировать ссылку для user_id {message.from_user.id}")
 
-# Main bot: Support commands
-@dp_main.message(Command("paysupport"))
+# Support commands
+@dp.message(Command("paysupport"))
 async def paysupport_command(message: types.Message):
     await message.answer("Для вопросов по оплате пишите: @Borov3223")  # Замените, если другой аккаунт
 
-@dp_main.message(Command("support"))
+@dp.message(Command("support"))
 async def support_command(message: types.Message):
     await message.answer("Для общих вопросов пишите: @Borov3223")  # Замените, если другой аккаунт
 
-@dp_main.message(Command("terms"))
+@dp.message(Command("terms"))
 async def terms_command(message: types.Message):
     await message.answer("Условия использования: https://telegram.org/tos")
 
-# Main bot: Handle incoming text messages
-@dp_main.message(F.text)
+# Handle incoming text messages
+@dp.message(F.text)
 async def handle_message(message: types.Message):
     logging.info(f"Получено текстовое сообщение от user_id {message.from_user.id}: {message.text}")
-    if message.from_user.id in dp_main.data:
-        receiver_id = dp_main.data[message.from_user.id]["receiver_id"]
+    if message.from_user.id in dp.data:
+        receiver_id = dp.data[message.from_user.id]["receiver_id"]
         sender_id = message.from_user.id
         message_text = message.text
         logging.info(f"Обработка сообщения: sender_id {sender_id}, receiver_id {receiver_id}, текст: {message_text}")
@@ -145,7 +151,7 @@ async def handle_message(message: types.Message):
         finally:
             conn.close()
 
-        # Send message to moderation bot
+        # Send message to moderator
         mod_message = (
             f"Новое сообщение:\n"
             f"Отправитель ID: {sender_id}\n"
@@ -153,29 +159,20 @@ async def handle_message(message: types.Message):
             f"Текст: {message_text}"
         )
         try:
-            await moderation_bot.send_message(
+            await bot.send_message(
                 chat_id=5397929249,  # Ваш Telegram ID
                 text=mod_message
             )
-            logging.info(f"Сообщение успешно отправлено модерационному боту: {mod_message}")
+            logging.info(f"Сообщение отправлено модератору: {mod_message}")
         except Exception as e:
-            logging.error(f"Ошибка при отправке сообщения модерационному боту: {e}")
-            # Fallback: send via main bot
-            try:
-                await main_bot.send_message(
-                    chat_id=5397929249,
-                    text=mod_message
-                )
-                logging.info(f"Сообщение отправлено через основной бот: {mod_message}")
-            except Exception as e:
-                logging.error(f"Ошибка при отправке через основной бот: {e}")
+            logging.error(f"Ошибка при отправке сообщения модератору: {e}")
 
         # Notify receiver
         try:
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="🔍 Узнать отправителя (5 Stars)", callback_data=f"reveal_{message_id}")]
             ])
-            await main_bot.send_message(
+            await bot.send_message(
                 receiver_id,
                 f"💌 Вы получили анонимную валентинку:\n{message_text}",
                 reply_markup=keyboard
@@ -184,14 +181,14 @@ async def handle_message(message: types.Message):
         except Exception as e:
             logging.error(f"Ошибка отправки уведомления получателю receiver_id {receiver_id}: {e}")
         await message.answer("Ваше валентинное сообщение отправлено! 💖")
-        del dp_main.data[message.from_user.id]
+        del dp.data[message.from_user.id]
     else:
         await message.answer(
             "Пожалуйста, используйте свою уникальную ссылку, чтобы отправить сообщение, или /start, чтобы получить свою ссылку."
         )
 
-# Main bot: Handle reveal sender button
-@dp_main.callback_query(F.data.startswith("reveal_"))
+# Handle reveal sender button
+@dp.callback_query(F.data.startswith("reveal_"))
 async def reveal_sender(callback: types.CallbackQuery):
     message_id = int(callback.data.split("_")[1])
     conn = sqlite3.connect("valentines.db")
@@ -203,7 +200,7 @@ async def reveal_sender(callback: types.CallbackQuery):
 
     if sender_id:
         prices = [LabeledPrice(label="Узнать отправителя", amount=500)]
-        await main_bot.send_invoice(
+        await bot.send_invoice(
             chat_id=callback.from_user.id,
             title="Узнать отправителя",
             description="Заплатите 5 Telegram Stars, чтобы узнать профиль отправителя.",
@@ -216,13 +213,13 @@ async def reveal_sender(callback: types.CallbackQuery):
         await callback.message.answer("❌ Ошибка: сообщение не найдено.")
         logging.error(f"Сообщение с ID {message_id} не найдено для reveal")
 
-# Main bot: Handle pre-checkout query
-@dp_main.pre_checkout_query()
+# Handle pre-checkout query
+@dp.pre_checkout_query()
 async def process_pre_checkout_query(pre_checkout_query: types.PreCheckoutQuery):
-    await main_bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
+    await bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
 
-# Main bot: Handle successful payment
-@dp_main.message(F.successful_payment)
+# Handle successful payment
+@dp.message(F.successful_payment)
 async def successful_payment(message: types.Message):
     payload = message.successful_payment.invoice_payload
     message_id = int(payload.split("_")[1])
@@ -236,34 +233,17 @@ async def successful_payment(message: types.Message):
     conn.close()
 
     if sender_id:
-        sender_chat = await main_bot.get_chat(sender_id)
+        sender_chat = await bot.get_chat(sender_id)
         sender_profile = f"https://t.me/{sender_chat.username or sender_id}"
         await message.answer(f"Отправитель раскрыт! Профиль: {sender_profile}")
     else:
         await message.answer("❌ Ошибка: отправитель не найден.")
         logging.error(f"Отправитель для message_id {message_id} не найден")
 
-# Moderation bot: Start command
-@dp_moderation.message(Command("start"))
-async def moderation_start_command(message: types.Message):
-    if message.from_user.id == 5397929249:
-        await moderation_bot.send_message(
-            chat_id=5397929249,
-            text="Сервер запущен! Модерационный бот готов принимать сообщения."
-        )
-        logging.info("Модерационный бот: Сервер запущен")
-    else:
-        await message.answer("Доступ только для администратора.")
-
 async def main():
     init_db()
     try:
-        # Start polling for main bot
-        main_task = asyncio.create_task(dp_main.start_polling(main_bot))
-        # Start polling for moderation bot with increased delay
-        await asyncio.sleep(5)
-        moderation_task = asyncio.create_task(dp_moderation.start_polling(moderation_bot))
-        await asyncio.gather(main_task, moderation_task)
+        await dp.start_polling(bot)
     except Exception as e:
         logging.error(f"Ошибка при запуске опроса: {e}")
 
