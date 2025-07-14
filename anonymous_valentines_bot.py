@@ -11,9 +11,10 @@ import uuid
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Initialize bot
-bot = Bot(token="7953383202:AAGDM20U_YXOj_t_PfNvScytpFl55pRc_lE")  # Новый токен
-dp = Dispatcher()
+# Initialize bots
+valentines_bot = Bot(token="7953383202:AAGDM20U_YXOj_t_PfNvScytpFl55pRc_lE")  # Бот валентинок
+moderation_bot = Bot(token="8184681913:AAEOfeBGA2p5S7q207ZpY-4qjCdBAW5gEEg")  # Бот модерации
+dp = Dispatcher()  # Один диспетчер для валентинок
 
 # Initialize SQLite database
 def init_db():
@@ -47,7 +48,7 @@ async def generate_unique_link(user_id):
         c.execute("INSERT OR REPLACE INTO users (user_id, unique_link) VALUES (?, ?)", (user_id, unique_id))
         conn.commit()
         logging.info(f"Сохранён user_id {user_id} с unique_id {unique_id} в БД")
-        bot_info = await bot.get_me()
+        bot_info = await valentines_bot.get_me()
         link = f"https://t.me/{bot_info.username}?start={unique_id}"
         logging.info(f"Сгенерирована ссылка для user_id {user_id}: {link}")
         return link
@@ -112,6 +113,42 @@ async def start_command(message: types.Message):
             await message.answer("❌ Ошибка при генерации ссылки. Попробуйте ещё раз.")
             logging.error(f"Не удалось сгенерировать ссылку для user_id {message.from_user.id}")
 
+# Messages command handler (for moderator)
+@dp.message(Command("messages"))
+async def messages_command(message: types.Message):
+    if message.from_user.id != 5397929249:  # Только для модератора
+        await message.answer("❌ Доступ только для администратора.")
+        logging.warning(f"Неавторизованный доступ к /messages от user_id {message.from_user.id}")
+        return
+    
+    try:
+        conn = sqlite3.connect("valentines.db")
+        c = conn.cursor()
+        c.execute("SELECT id, receiver_id, sender_id, message, is_anonymous FROM messages ORDER BY id DESC LIMIT 10")
+        messages = c.fetchall()
+        conn.close()
+
+        if not messages:
+            await message.answer("Нет сообщений в базе данных.")
+            logging.info("Команда /messages: База данных пуста")
+            return
+
+        response = "Последние сообщения:\n\n"
+        for msg in messages:
+            msg_id, receiver_id, sender_id, text, is_anonymous = msg
+            response += (
+                f"ID: {msg_id}\n"
+                f"Отправитель ID: {sender_id}\n"
+                f"Получатель ID: {receiver_id}\n"
+                f"Текст: {text}\n"
+                f"Анонимно: {'Да' if is_anonymous else 'Нет'}\n\n"
+            )
+        await message.answer(response)
+        logging.info(f"Команда /messages выполнена для user_id {message.from_user.id}")
+    except Exception as e:
+        await message.answer("❌ Ошибка при получении сообщений.")
+        logging.error(f"Ошибка команды /messages: {e}")
+
 # Support commands
 @dp.message(Command("paysupport"))
 async def paysupport_command(message: types.Message):
@@ -151,7 +188,7 @@ async def handle_message(message: types.Message):
         finally:
             conn.close()
 
-        # Send message to moderator
+        # Send message to moderator using moderation bot
         mod_message = (
             f"Новое сообщение:\n"
             f"Отправитель ID: {sender_id}\n"
@@ -159,20 +196,20 @@ async def handle_message(message: types.Message):
             f"Текст: {message_text}"
         )
         try:
-            await bot.send_message(
+            await moderation_bot.send_message(
                 chat_id=5397929249,  # Ваш Telegram ID
                 text=mod_message
             )
-            logging.info(f"Сообщение отправлено модератору: {mod_message}")
+            logging.info(f"Сообщение отправлено модератору через moderation_bot: {mod_message}")
         except Exception as e:
-            logging.error(f"Ошибка при отправке сообщения модератору: {e}")
+            logging.error(f"Ошибка при отправке сообщения модератору через moderation_bot: {e}")
 
-        # Notify receiver
+        # Notify receiver using valentines bot
         try:
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="🔍 Узнать отправителя (5 Stars)", callback_data=f"reveal_{message_id}")]
             ])
-            await bot.send_message(
+            await valentines_bot.send_message(
                 receiver_id,
                 f"💌 Вы получили анонимную валентинку:\n{message_text}",
                 reply_markup=keyboard
@@ -200,7 +237,7 @@ async def reveal_sender(callback: types.CallbackQuery):
 
     if sender_id:
         prices = [LabeledPrice(label="Узнать отправителя", amount=500)]
-        await bot.send_invoice(
+        await valentines_bot.send_invoice(
             chat_id=callback.from_user.id,
             title="Узнать отправителя",
             description="Заплатите 5 Telegram Stars, чтобы узнать профиль отправителя.",
@@ -216,7 +253,7 @@ async def reveal_sender(callback: types.CallbackQuery):
 # Handle pre-checkout query
 @dp.pre_checkout_query()
 async def process_pre_checkout_query(pre_checkout_query: types.PreCheckoutQuery):
-    await bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
+    await valentines_bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
 
 # Handle successful payment
 @dp.message(F.successful_payment)
@@ -233,7 +270,7 @@ async def successful_payment(message: types.Message):
     conn.close()
 
     if sender_id:
-        sender_chat = await bot.get_chat(sender_id)
+        sender_chat = await valentines_bot.get_chat(sender_id)
         sender_profile = f"https://t.me/{sender_chat.username or sender_id}"
         await message.answer(f"Отправитель раскрыт! Профиль: {sender_profile}")
     else:
@@ -243,9 +280,10 @@ async def successful_payment(message: types.Message):
 async def main():
     init_db()
     try:
-        await dp.start_polling(bot)
+        await dp.start_polling(valentines_bot)
+        logging.info("Опрос успешно запущен для valentines_bot")
     except Exception as e:
-        logging.error(f"Ошибка при запуске опроса: {e}")
+        logging.error(f"Ошибка при запуске опроса для valentines_bot: {e}")
         raise  # Повторно выбросить исключение для отображения в логах Render
 
 if __name__ == "__main__":
