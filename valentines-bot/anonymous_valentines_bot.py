@@ -98,39 +98,13 @@ async def start_command(message: types.Message):
     args = message.text.split()
     logging.info(f"Получена команда /start от user_id {message.from_user.id} с аргументами: {args}")
     
-    # Moderator start command
-    if message.from_user.id == ADMIN_ID:
-        if dp.data.get(message.from_user.id, {}).get("admin_authorized", False):
-            await show_admin_panel(message)
-        else:
-            user_link = await generate_unique_link(message.from_user.id)
-            if user_link:
-                menu = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="📤 Поделиться ссылкой", switch_inline_query=user_link)],
-                    [InlineKeyboardButton(text="🔧 Админ-панель", callback_data="admin_panel")]
-                ])
-                await message.answer(
-                    "💖 Добро пожаловать в бот анонимных валентинок! 💖\n\n"
-                    "Отправляйте и получайте анонимные сообщения, полные любви и тепла! 💌\n"
-                    f"Ваша уникальная ссылка: {user_link}\n"
-                    "Поделитесь ею с друзьями, чтобы получать валентинки!\n\n"
-                    "За 5 Telegram Stars 🌟 вы сможете узнать, кто отправил вам сообщение!\n\n"
-                    "Выберите действие:",
-                    reply_markup=menu
-                )
-                logging.info(f"Ссылка отправлена админу user_id {message.from_user.id}: {user_link}")
-            else:
-                await message.answer("❌ Ошибка при генерации ссылки. Попробуйте ещё раз.")
-                logging.error(f"Не удалось сгенерировать ссылку для админа user_id {message.from_user.id}")
-        return
-    
     # Check if user is banned
     if is_user_banned(message.from_user.id):
         await message.answer("🚫 Вы забанены и не можете использовать бот.")
         logging.warning(f"Забаненный user_id {message.from_user.id} пытался использовать /start")
         return
     
-    # Regular user start command
+    # Handle link-based start
     if len(args) > 1:
         unique_id = args[1]
         receiver_id = get_user_from_link(unique_id)
