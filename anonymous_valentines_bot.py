@@ -160,6 +160,15 @@ async def handle_message(message: types.Message):
             logging.info(f"Сообщение успешно отправлено модерационному боту: {mod_message}")
         except Exception as e:
             logging.error(f"Ошибка при отправке сообщения модерационному боту: {e}")
+            # Fallback: send via main bot
+            try:
+                await main_bot.send_message(
+                    chat_id=5397929249,
+                    text=mod_message
+                )
+                logging.info(f"Сообщение отправлено через основной бот: {mod_message}")
+            except Exception as e:
+                logging.error(f"Ошибка при отправке через основной бот: {e}")
 
         # Notify receiver
         try:
@@ -251,8 +260,8 @@ async def main():
     try:
         # Start polling for main bot
         main_task = asyncio.create_task(dp_main.start_polling(main_bot))
-        # Start polling for moderation bot with delay to avoid conflict
-        await asyncio.sleep(2)
+        # Start polling for moderation bot with increased delay
+        await asyncio.sleep(5)
         moderation_task = asyncio.create_task(dp_moderation.start_polling(moderation_bot))
         await asyncio.gather(main_task, moderation_task)
     except Exception as e:
