@@ -12,7 +12,7 @@ import uuid
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Initialize bot
-bot = Bot(token="8004585329:AAEe_MSDprlIqZdjyEV3AYH2iiQJDHTeCkM")
+bot = Bot(token="7953383202:AAGDM20U_YXOj_t_PfNvScytpFl55pRc_lE")  # Новый токен
 dp = Dispatcher()
 
 # Initialize SQLite database
@@ -246,6 +246,7 @@ async def main():
         await dp.start_polling(bot)
     except Exception as e:
         logging.error(f"Ошибка при запуске опроса: {e}")
+        raise  # Повторно выбросить исключение для отображения в логах Render
 
 if __name__ == "__main__":
     asyncio.run(main())
