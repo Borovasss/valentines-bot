@@ -7,6 +7,8 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram import F
 from aiogram.types import LabeledPrice
 import uuid
+from aiohttp import web
+import os
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -104,13 +106,7 @@ async def start_command(message: types.Message):
         logging.warning(f"Забаненный user_id {message.from_user.id} пытался использовать /start")
         return
     
-    # Admin-specific response
-    if message.from_user.id == ADMIN_ID:
-        await message.answer("Сервер запущен! Бот готов принимать сообщения.")
-        logging.info(f"Админ user_id {message.from_user.id} получил сообщение 'Сервер запущен'")
-        return
-    
-    # Handle link-based start for non-admins
+    # Handle link-based start
     if len(args) > 1:
         unique_id = args[1]
         receiver_id = get_user_from_link(unique_id)
@@ -163,7 +159,7 @@ async def start_command(message: types.Message):
             await message.answer("❌ Ошибка при генерации ссылки. Попробуйте ещё раз.")
             logging.error(f"Не удалось сгенерировать ссылку для user_id {message.from_user.id}")
 
-# Admin panel command for admin
+# Admin panel command
 @dp.message(Command("admin"))
 async def admin_command(message: types.Message):
     if message.from_user.id != ADMIN_ID:
@@ -178,7 +174,7 @@ async def admin_command(message: types.Message):
         dp.data[message.from_user.id] = dp.data.get(message.from_user.id, {})
         dp.data[message.from_user.id]["awaiting_password"] = True
 
-# Admin panel callback for non-admins
+# Admin panel callback
 @dp.callback_query(F.data == "admin_panel")
 async def admin_panel_callback(callback: types.CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
@@ -302,11 +298,26 @@ async def admin_callback(callback: types.CallbackQuery):
     
     elif action == "lock":
         dp.data[callback.from_user.id]["admin_authorized"] = False
-        await callback.message.answer(
-            "🔒 Админ-панель заблокирована.\n\n"
-            "Сервер запущен! Бот готов принимать сообщения."
-        )
-        logging.info(f"Админ-панель заблокирована для user_id {callback.from_user.id}")
+        user_link = await generate_unique_link(callback.from_user.id)
+        if user_link:
+            menu = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📤 Поделиться ссылкой", switch_inline_query=user_link)],
+                [InlineKeyboardButton(text="🔧 Админ-панель", callback_data="admin_panel")]
+            ])
+            await callback.message.answer(
+                "🔒 Админ-панель заблокирована.\n\n"
+                "💖 Добро пожаловать в бот анонимных валентинок! 💖\n\n"
+                "Отправляйте и получайте анонимные сообщения, полные любви и тепла! 💌\n"
+                f"Ваша уникальная ссылка: {user_link}\n"
+                "Поделитесь ею с друзьями, чтобы получать валентинки!\n\n"
+                "За 5 Telegram Stars 🌟 вы сможете узнать, кто отправил вам сообщение!\n\n"
+                "Выберите действие:",
+                reply_markup=menu
+            )
+            logging.info(f"Админ-панель заблокирована для user_id {callback.from_user.id}")
+        else:
+            await callback.message.answer("❌ Ошибка при генерации ссылки. Попробуйте ещё раз.")
+            logging.error(f"Не удалось сгенерировать ссылку при блокировке админ-панели для user_id {callback.from_user.id}")
     
     await callback.answer()
 
@@ -524,9 +535,27 @@ async def successful_payment(message: types.Message):
         await message.answer("❌ Ошибка: отправитель не найден.")
         logging.error(f"Отправитель для message_id {message_id} не найден")
 
+# HTTP server to prevent Render sleep
+async def health_check(request):
+    logging.info("Получен запрос /health")
+    return web.Response(text="OK")
+
+async def start_http_server():
+    app = web.Application()
+    app.router.add_get('/health', health_check)
+    port = int(os.environ.get("PORT", 8080))
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    logging.info(f"HTTP сервер запущен на порту {port}")
+
 async def main():
     init_db()
     try:
+        # Start HTTP server to prevent sleep
+        asyncio.create_task(start_http_server())
+        # Start bot polling
         await dp.start_polling(bot)
         logging.info("Опрос успешно запущен")
     except Exception as e:
