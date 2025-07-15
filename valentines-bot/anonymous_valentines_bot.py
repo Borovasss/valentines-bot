@@ -92,7 +92,7 @@ def get_user_from_link(unique_id):
     finally:
         conn.close()
 
-# Start command handler with menu
+# Start command handler
 @dp.message(CommandStart())
 async def start_command(message: types.Message):
     args = message.text.split()
@@ -104,7 +104,13 @@ async def start_command(message: types.Message):
         logging.warning(f"Забаненный user_id {message.from_user.id} пытался использовать /start")
         return
     
-    # Handle link-based start
+    # Admin-specific response
+    if message.from_user.id == ADMIN_ID:
+        await message.answer("Сервер запущен! Бот готов принимать сообщения.")
+        logging.info(f"Админ user_id {message.from_user.id} получил сообщение 'Сервер запущен'")
+        return
+    
+    # Handle link-based start for non-admins
     if len(args) > 1:
         unique_id = args[1]
         receiver_id = get_user_from_link(unique_id)
@@ -157,7 +163,22 @@ async def start_command(message: types.Message):
             await message.answer("❌ Ошибка при генерации ссылки. Попробуйте ещё раз.")
             logging.error(f"Не удалось сгенерировать ссылку для user_id {message.from_user.id}")
 
-# Admin panel callback
+# Admin panel command for admin
+@dp.message(Command("admin"))
+async def admin_command(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("❌ Доступ только для администратора.")
+        logging.warning(f"Неавторизованный доступ к /admin от user_id {message.from_user.id}")
+        return
+    
+    if dp.data.get(message.from_user.id, {}).get("admin_authorized", False):
+        await show_admin_panel(message)
+    else:
+        await message.answer("🔐 Введите пароль для доступа к админ-панели:")
+        dp.data[message.from_user.id] = dp.data.get(message.from_user.id, {})
+        dp.data[message.from_user.id]["awaiting_password"] = True
+
+# Admin panel callback for non-admins
 @dp.callback_query(F.data == "admin_panel")
 async def admin_panel_callback(callback: types.CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
@@ -281,26 +302,11 @@ async def admin_callback(callback: types.CallbackQuery):
     
     elif action == "lock":
         dp.data[callback.from_user.id]["admin_authorized"] = False
-        user_link = await generate_unique_link(callback.from_user.id)
-        if user_link:
-            menu = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="📤 Поделиться ссылкой", switch_inline_query=user_link)],
-                [InlineKeyboardButton(text="🔧 Админ-панель", callback_data="admin_panel")]
-            ])
-            await callback.message.answer(
-                "🔒 Админ-панель заблокирована.\n\n"
-                "💖 Добро пожаловать в бот анонимных валентинок! 💖\n\n"
-                "Отправляйте и получайте анонимные сообщения, полные любви и тепла! 💌\n"
-                f"Ваша уникальная ссылка: {user_link}\n"
-                "Поделитесь ею с друзьями, чтобы получать валентинки!\n\n"
-                "За 5 Telegram Stars 🌟 вы сможете узнать, кто отправил вам сообщение!\n\n"
-                "Выберите действие:",
-                reply_markup=menu
-            )
-            logging.info(f"Админ-панель заблокирована для user_id {callback.from_user.id}")
-        else:
-            await callback.message.answer("❌ Ошибка при генерации ссылки. Попробуйте ещё раз.")
-            logging.error(f"Не удалось сгенерировать ссылку при блокировке админ-панели для user_id {callback.from_user.id}")
+        await callback.message.answer(
+            "🔒 Админ-панель заблокирована.\n\n"
+            "Сервер запущен! Бот готов принимать сообщения."
+        )
+        logging.info(f"Админ-панель заблокирована для user_id {callback.from_user.id}")
     
     await callback.answer()
 
